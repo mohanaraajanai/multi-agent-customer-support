@@ -8,9 +8,9 @@ from crewai import Agent, Crew, LLM, Process, Task
 from crewai.tools import tool
 from crewai_tools import SerperDevTool
 
-# ---------------------------------------------------------
-# Environment / configuration
-# ---------------------------------------------------------
+# =========================================================
+# Configuration
+# =========================================================
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -19,18 +19,22 @@ MODEL_NAME = os.getenv("OPENAI_MODEL", "openai/gpt-4o-mini")
 MAX_SOURCE_CHARS = 120_000
 
 
+# =========================================================
+# Environment helpers
+# =========================================================
 def require_env(name: str) -> str:
+    """Return a required environment variable or raise a clear error."""
     value = os.getenv(name)
     if not value:
         raise RuntimeError(
             f"Missing required environment variable: {name}. "
-            f"Add it to your environment or .env file."
+            "Add it to your .env file and restart Streamlit."
         )
     return value
 
 
 def read_uploaded_support_file(uploaded_file) -> str:
-    """Read the inbound customer-support knowledge file as UTF-8 text."""
+    """Read the uploaded UTF-8 text support knowledge base."""
     if uploaded_file is None:
         raise ValueError("Please upload a customer support source file.")
 
@@ -38,93 +42,92 @@ def read_uploaded_support_file(uploaded_file) -> str:
         content = uploaded_file.getvalue().decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ValueError(
-            "The support source file must be a UTF-8 encoded text file."
+            "The customer support source file must be UTF-8 encoded text."
         ) from exc
 
     content = content.strip()
 
     if not content:
-        raise ValueError("The uploaded support source file is empty.")
+        raise ValueError("The uploaded customer support source file is empty.")
 
     if len(content) > MAX_SOURCE_CHARS:
         raise ValueError(
-            f"The uploaded support source file is too large. "
-            f"Maximum supported text length is {MAX_SOURCE_CHARS:,} characters."
+            f"The uploaded source file is too large. Maximum supported size is "
+            f"{MAX_SOURCE_CHARS:,} characters."
         )
 
     return content
 
 
-# ---------------------------------------------------------
-# Custom tool used ONLY by the Entry Agent
-# ---------------------------------------------------------
+# =========================================================
+# Tool used only by Agent 3
+# =========================================================
 @tool("Save Customer Support Entry")
 def save_customer_support_entry(entry_text: str) -> str:
-    """
-    Append one complete customer-support interaction to the text log.
-    The entry must contain the customer query, Answer 1 from the Assistant,
-    and Answer 2 from the Web Search Assistant.
-    """
+    """Append the complete customer-support interaction to a text file."""
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     with LOG_FILE.open("a", encoding="utf-8") as file:
         file.write("\n" + "=" * 80 + "\n")
-        file.write(f"Timestamp: {datetime.now().isoformat(timespec='seconds')}\n")
+        file.write(
+            f"Timestamp: {datetime.now().isoformat(timespec='seconds')}\n"
+        )
         file.write(entry_text.strip() + "\n")
 
     return f"Entry saved successfully to {LOG_FILE.name}."
 
 
-# ---------------------------------------------------------
-# Crew construction
-# ---------------------------------------------------------
+# =========================================================
+# Build the exactly-three-agent sequential crew
+# =========================================================
 def build_crew(user_query: str, support_source: str, status_box):
-    openai_key = require_env("OPENAI_API_KEY")
-    serper_key = require_env("SERPER_API_KEY")
+    # Validate both keys before creating the crew.
+    require_env("OPENAI_API_KEY")
+    require_env("SERPER_API_KEY")
 
+    # CrewAI reads the OpenAI key from the environment.
     llm = LLM(
         model=MODEL_NAME,
-        api_key=openai_key,
         temperature=0.2,
     )
 
-    # The web-search capability belongs only to Agent 2.
-    search_tool = SerperDevTool(api_key=serper_key)
+    # Agent 2 is the only agent that receives the web-search tool.
+    search_tool = SerperDevTool()
 
-    # -----------------------------
+    # -----------------------------------------------------
     # Agent 1 - Assistant
-    # -----------------------------
+    # -----------------------------------------------------
     assistant = Agent(
         role="Assistant",
         goal=(
-            "Answer the customer's query using ONLY the supplied customer support "
-            "knowledge base. Do not use general model knowledge, web search, or "
+            "Answer the customer's query using ONLY the uploaded customer support "
+            "knowledge base. Never use web search, general model knowledge, or "
             "unstated assumptions."
         ),
         backstory=(
             "You are the first-line customer support assistant. The uploaded "
-            "customer support source file is your only authority. When the source "
-            "does not contain the requested information, explicitly say that the "
-            "information is not available in the customer support knowledge base."
+            "customer support source is your only source of truth. If the requested "
+            "information is not present, explicitly say it is not available in the "
+            "customer support knowledge base."
         ),
         llm=llm,
         allow_delegation=False,
         verbose=False,
     )
 
-    # -----------------------------
+    # -----------------------------------------------------
     # Agent 2 - Web Search Assistant
-    # -----------------------------
+    # -----------------------------------------------------
     web_search_assistant = Agent(
         role="Web Search Assistant",
         goal=(
-            "Search the web for the customer's query, verify current information, "
-            "and provide a web-grounded customer-support answer."
+            "Search the web for the customer's query and produce a second answer "
+            "grounded in relevant web results."
         ),
         backstory=(
-            "You are the research-oriented second-line support assistant. "
-            "You use the available web search tool, prefer reliable sources, "
-            "and clearly distinguish current web findings from general knowledge."
+            "You are the second-line web research assistant. Use the web-search "
+            "tool to find relevant and current information. You may use Agent 1's "
+            "answer as context, but independently research the query."
         ),
         tools=[search_tool],
         llm=llm,
@@ -132,19 +135,19 @@ def build_crew(user_query: str, support_source: str, status_box):
         verbose=False,
     )
 
-    # -----------------------------
+    # -----------------------------------------------------
     # Agent 3 - Entry Agent
-    # -----------------------------
+    # -----------------------------------------------------
     entry_agent = Agent(
         role="Entry Agent",
         goal=(
-            "Create a durable text record containing the customer query, both "
-            "previous answers, and return both answers to the user."
+            "Save the customer query and both previous answers into a text file, "
+            "then return both answers clearly."
         ),
         backstory=(
-            "You are the final support-record agent. You receive the outputs of "
-            "the first two agents, save the complete interaction using the file "
-            "writing tool, and then return both answers clearly."
+            "You are the final support-record agent. You receive Agent 1 and Agent 2 "
+            "outputs through task context. You must use the save tool once to persist "
+            "the complete interaction, then report the two answers."
         ),
         tools=[save_customer_support_entry],
         llm=llm,
@@ -152,91 +155,100 @@ def build_crew(user_query: str, support_source: str, status_box):
         verbose=False,
     )
 
-    # -----------------------------
-    # Task 1 - Direct answer
-    # -----------------------------
+    # -----------------------------------------------------
+    # Task 1 - Agent 1: source-grounded direct answer
+    # -----------------------------------------------------
     assistant_task = Task(
         description=(
-            "Answer the following customer query using ONLY the customer support "
-            "knowledge base provided below.\n\n"
+            "Answer the customer's query using ONLY the customer support knowledge "
+            "base provided below.\n\n"
             "STRICT RULES:\n"
-            "- Do not browse the web.\n"
-            "- Do not use general model knowledge.\n"
-            "- Do not invent, infer, or assume facts not stated in the source.\n"
-            "- If the answer is not explicitly supported by the source, say: "
-            '"This information is not available in the customer support knowledge base."\n'
-            "- Keep the answer concise and customer-friendly.\n\n"
-            "CUSTOMER SUPPORT KNOWLEDGE BASE:\n"
-            "------------------------------\n"
+            "1. Do not browse the web.\n"
+            "2. Do not use general model knowledge.\n"
+            "3. Do not invent, infer, or assume facts not stated in the source.\n"
+            "4. If the answer is not explicitly supported by the source, respond "
+            "with exactly: \"This information is not available in the customer "
+            "support knowledge base.\"\n"
+            "5. Keep the answer concise and customer-friendly.\n\n"
+            "CUSTOMER SUPPORT KNOWLEDGE BASE\n"
+            "--------------------------------\n"
             f"{support_source}\n"
-            "------------------------------\n\n"
-            "CUSTOMER QUERY:\n"
+            "--------------------------------\n\n"
+            "CUSTOMER QUERY\n"
+            "--------------\n"
             f"{user_query}"
         ),
         expected_output=(
-            "A concise customer-support answer grounded strictly in the uploaded "
-            "customer support knowledge base, or the exact unavailable-information "
-            "message when the source does not contain the answer."
+            "One concise answer grounded only in the uploaded customer support "
+            "knowledge base, or the required unavailable-information message."
         ),
         agent=assistant,
     )
 
-    # -----------------------------
-    # Task 2 - Web-grounded answer
-    # -----------------------------
+    # -----------------------------------------------------
+    # Task 2 - Agent 2: web-grounded answer
+    # -----------------------------------------------------
     web_search_task = Task(
         description=(
-            "Research the same customer query using your web search tool. "
-            "Produce a second answer grounded in current web results. "
-            "Use the previous Assistant answer as context, but independently "
-            "verify important claims rather than blindly copying it. "
-            "Where useful, include source names and URLs.\n\n"
-            "Customer query:\n{query}"
+            "Research the customer's query using the web-search tool. Produce a "
+            "second answer grounded in the web results. Use Agent 1's output as "
+            "context, but independently research the query. Clearly distinguish "
+            "web findings from the internal support answer. Where useful, include "
+            "source names or URLs.\n\n"
+            "CUSTOMER QUERY\n"
+            "--------------\n"
+            "{query}"
         ),
         expected_output=(
-            "A web-grounded answer to the query, supported by relevant web results "
-            "and a concise list of useful source links or source names."
+            "A concise web-grounded answer supported by relevant search results, "
+            "including source names or links when useful."
         ),
         agent=web_search_assistant,
         context=[assistant_task],
     )
 
-    # -----------------------------
-    # Task 3 - Save + return both
-    # -----------------------------
+    # -----------------------------------------------------
+    # Task 3 - Agent 3: save + return both answers
+    # -----------------------------------------------------
     entry_task = Task(
         description=(
-            "Create the final customer-support record using the outputs of BOTH "
-            "previous tasks. You must call the 'Save Customer Support Entry' tool "
-            "exactly once. Pass it one complete text entry containing:\n"
-            "1) the original customer query\n"
-            "2) Answer 1 - the Assistant's answer\n"
-            "3) Answer 2 - the Web Search Assistant's answer\n\n"
-            "After the save succeeds, return BOTH answers to the user. Preserve the "
-            "meaning and wording of both previous answers; do not invent a third answer.\n\n"
-            "Customer query:\n{query}"
+            "Using the outputs of both previous tasks, create one complete customer "
+            "support record. You MUST call the 'Save Customer Support Entry' tool "
+            "exactly once. The text passed to the tool must contain:\n\n"
+            "1. Original customer query\n"
+            "2. Answer 1 - Assistant answer\n"
+            "3. Answer 2 - Web Search Assistant answer\n\n"
+            "After the save succeeds, return both answers clearly to the user and "
+            "briefly confirm that the interaction was saved. Do not invent a third "
+            "answer.\n\n"
+            "CUSTOMER QUERY\n"
+            "--------------\n"
+            "{query}"
         ),
         expected_output=(
-            "A final response containing Answer 1 and Answer 2, plus a brief confirmation "
-            "that the complete interaction was saved to the text file."
+            "A final response containing Answer 1, Answer 2, and a short save "
+            "confirmation."
         ),
         agent=entry_agent,
         context=[assistant_task, web_search_task],
     )
 
+    # -----------------------------------------------------
+    # Progress callback
+    # -----------------------------------------------------
     task_names = ["Assistant", "Web Search Assistant", "Entry Agent"]
     state = {"completed": 0}
 
     def on_task_complete(task_output):
-        completed = state["completed"]
-        finished_name = task_names[completed]
+        index = state["completed"]
+
+        if index < len(task_names):
+            status_box.write(f"✅ {task_names[index]} completed")
+
         state["completed"] += 1
 
-        status_box.write(f"✅ {finished_name} completed")
-
         if state["completed"] < len(task_names):
-            next_name = task_names[state["completed"]]
-            status_box.write(f"➡️ Running {next_name}...")
+            status_box.write(f"➡️ Running {task_names[state['completed']]}...")
         else:
             status_box.update(
                 label="3-agent support crew completed",
@@ -244,6 +256,9 @@ def build_crew(user_query: str, support_source: str, status_box):
                 expanded=False,
             )
 
+    # -----------------------------------------------------
+    # IMPORTANT: return ONLY the Crew object.
+    # -----------------------------------------------------
     crew = Crew(
         agents=[assistant, web_search_assistant, entry_agent],
         tasks=[assistant_task, web_search_task, entry_task],
@@ -252,12 +267,12 @@ def build_crew(user_query: str, support_source: str, status_box):
         verbose=False,
     )
 
-    return crew, assistant_task, web_search_task, entry_task
+    return crew
 
 
-# ---------------------------------------------------------
+# =========================================================
 # Streamlit UI
-# ---------------------------------------------------------
+# =========================================================
 st.set_page_config(
     page_title="Multi-Agent Customer Support",
     page_icon="🤖",
@@ -270,15 +285,20 @@ st.caption("CrewAI · Sequential Process · 3 Agents · Streamlit")
 with st.expander("How this buildathon demo works", expanded=False):
     st.markdown(
         """
-        **Agent 1 — Assistant:** answers ONLY from the uploaded customer-support source file.\n\n
-        **Agent 2 — Web Search Assistant:** receives Agent 1's output and searches the web.\n\n
-        **Agent 3 — Entry Agent:** receives both prior outputs, saves the full interaction to
+        **Agent 1 — Assistant**  
+        Answers ONLY from the uploaded customer-support source file.
+
+        **Agent 2 — Web Search Assistant**  
+        Receives Agent 1's task output and searches the web.
+
+        **Agent 3 — Entry Agent**  
+        Receives both earlier task outputs, saves the interaction to
         `customer_support_entries.txt`, and returns both answers.
         """
     )
 
 # ---------------------------------------------------------
-# Inbound customer-support source file
+# 1. Inbound support source file
 # ---------------------------------------------------------
 st.subheader("1. Customer Support Source File")
 
@@ -287,7 +307,7 @@ uploaded_file = st.file_uploader(
     type=["txt"],
     accept_multiple_files=False,
     max_upload_size=5,
-    help="Agent 1 will use ONLY the text in this uploaded file.",
+    help="Agent 1 will use ONLY the contents of this uploaded text file.",
 )
 
 support_source = None
@@ -302,11 +322,12 @@ if uploaded_file is not None:
 
         with st.expander("Preview source file", expanded=False):
             st.text(support_source)
+
     except ValueError as exc:
         st.error(str(exc))
 
 # ---------------------------------------------------------
-# Customer query
+# 2. Customer query
 # ---------------------------------------------------------
 st.subheader("2. Customer Query")
 
@@ -316,7 +337,11 @@ query = st.text_area(
     height=120,
 )
 
-run_button = st.button("Run 3-Agent Support", type="primary", use_container_width=True)
+run_button = st.button(
+    "Run 3-Agent Support",
+    type="primary",
+    use_container_width=True,
+)
 
 if run_button:
     if uploaded_file is None or support_source is None:
@@ -327,7 +352,10 @@ if run_button:
         st.warning("Please enter a customer query.")
         st.stop()
 
-    status_box = st.status("Starting 3-agent support crew...", expanded=True)
+    status_box = st.status(
+        "Starting 3-agent support crew...",
+        expanded=True,
+    )
     status_box.write("➡️ Running Assistant...")
 
     try:
@@ -337,14 +365,16 @@ if run_button:
             status_box=status_box,
         )
 
+        # build_crew returns a Crew object, so kickoff is called directly on it.
         result = crew.kickoff(inputs={"query": query.strip()})
 
-        # Individual task outputs are used so the UI shows the two requested answers
-        # exactly as produced by Agents 1 and 2.
-        task_outputs = getattr(result, "tasks_output", [])
+        # CrewAI exposes each completed task through result.tasks_output.
+        task_outputs = getattr(result, "tasks_output", None)
 
-        if len(task_outputs) < 3:
-            raise RuntimeError("Crew completed, but the expected three task outputs were not returned.")
+        if not task_outputs or len(task_outputs) < 3:
+            raise RuntimeError(
+                "Crew completed, but the expected three task outputs were not returned."
+            )
 
         answer_1 = task_outputs[0].raw
         answer_2 = task_outputs[1].raw
@@ -357,11 +387,11 @@ if run_button:
         st.write(answer_2)
 
         st.subheader("Entry Agent")
-        st.success("The Entry Agent completed the final step.")
+        st.success("The Entry Agent completed the final step and saved the interaction.")
         st.write(final_output)
 
         if LOG_FILE.exists():
-            st.info(f"Saved support log: `{LOG_FILE}`")
+            st.info(f"Saved support log: `{LOG_FILE.name}`")
 
     except Exception as exc:
         status_box.update(
@@ -371,5 +401,6 @@ if run_button:
         )
         st.error(str(exc))
         st.caption(
-            "Check OPENAI_API_KEY, SERPER_API_KEY, package installation, and network/API access."
+            "Check OPENAI_API_KEY, SERPER_API_KEY, package versions, "
+            "and network/API access."
         )
