@@ -1,0 +1,77 @@
+CUSTOMER SUPPORT KNOWLEDGE BASE
+================================
+
+Company: Acme Online Store
+Purpose: Internal source information for the Customer Support Assistant
+
+1. ORDER CANCELLATION
+---------------------
+Customers can cancel an order only if it has not been shipped.
+
+To request cancellation, the customer should provide their order number through the support channel.
+
+Once an order has been shipped, it cannot be cancelled. The customer may instead follow the return process after delivery, subject to the return policy.
+
+2. ORDER PROCESSING AND SHIPPING
+--------------------------------
+Orders are normally processed within 1-2 business days.
+
+Standard shipping normally takes 3-5 business days after processing.
+
+Customers receive a shipping confirmation email with tracking information after the order is dispatched.
+
+3. RETURNS
+----------
+Customers can request a return within 30 calendar days of delivery.
+
+Returned products must be unused and in their original packaging.
+
+Some products may not be eligible for return. The support team should verify the product and order before confirming eligibility.
+
+4. REFUNDS
+----------
+After an approved return is received and inspected, the refund is normally processed within 5-7 business days.
+
+The refund is issued to the original payment method.
+
+The time required for the amount to appear in the customer's bank account or card account may depend on the payment provider.
+
+5. DAMAGED OR INCORRECT ITEMS
+-----------------------------
+If a customer receives a damaged or incorrect item, they should contact support within 7 calendar days of delivery.
+
+The customer should provide the order number and clear photos of the received item and packaging.
+
+The support team will review the information and provide the next steps.
+
+6. PAYMENT METHODS
+-------------------
+The store accepts Visa, Mastercard, and UPI.
+
+Cash on delivery is not currently available.
+
+7. SUPPORT HOURS
+----------------
+Customer support is available Monday-Friday, 9:00 AM-6:00 PM IST.
+
+Support is closed on Saturdays, Sundays, and public holidays.
+
+8. PASSWORD RESET
+-----------------
+Customers can reset their account password using the "Forgot Password" option on the login page.
+
+A password-reset link is sent to the registered email address.
+
+If the customer does not receive the email, they should check the spam or junk folder before contacting support.
+
+9. ACCOUNT EMAIL CHANGE
+-----------------------
+Customers cannot change their registered email address directly from the account page.
+
+They must contact customer support and complete the account verification process.
+
+10. RESPONSE GROUNDING RULE
+---------------------------
+The Customer Support Assistant must answer customer questions using ONLY the information in this knowledge base.
+
+If the requested information is not present in this knowledge base, the assistant must say that the information is not available in the customer support knowledge base and must not invent or assume an answer.
